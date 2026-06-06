@@ -41,11 +41,11 @@ export async function triggerReschedule(): Promise<void> {
  * instance). Admin "manual trigger" actions reach it through this registry.
  */
 export interface OrchestratorLike {
-  runReminders(): Promise<number>;
-  runMorningAnnouncements(): Promise<number>;
-  runWishPublishing(): Promise<number>;
-  runEveningSummary(): Promise<number>;
-  publishWishNow(wishId: string): Promise<boolean>;
+  runReminders(force?: boolean): Promise<number>;
+  runMorningAnnouncements(force?: boolean): Promise<number>;
+  runWishPublishing(force?: boolean): Promise<number>;
+  runEveningSummary(force?: boolean): Promise<number>;
+  publishWishNow(wishId: string): Promise<'ok' | 'no_group' | 'not_found' | 'already_published'>;
 }
 
 let orchestratorRef: OrchestratorLike | null = null;

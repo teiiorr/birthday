@@ -7,7 +7,7 @@
  * reaching this global scope.)
  */
 import { BirthdayWish, WishStatus } from '@prisma/client';
-import { Telegraf } from 'telegraf';
+import { Telegraf, type Telegram } from 'telegraf';
 import { t } from '../../localization';
 import { employeeService } from '../../modules/employee/employee.service';
 import { settingsService } from '../../modules/settings/settings.service';
@@ -52,9 +52,31 @@ function wishStatusLabel(wish: BirthdayWish): string {
   }
 }
 
-function wishCardText(employeeName: string, wish: BirthdayWish): string {
+/**
+ * Resolve a human label for the wish sender — admin-only. The reveal in the
+ * group is ALWAYS anonymous; only here (moderation) do we identify the author.
+ * Looked up live via getChat (the sender always has a private chat with the bot
+ * because they submitted the wish in DM). Falls back to the raw id.
+ */
+async function senderLabel(telegram: Telegram, senderTelegramId: bigint): Promise<string> {
+  try {
+    const chat = await telegram.getChat(Number(senderTelegramId));
+    if (chat.type === 'private') {
+      const name = [chat.first_name, chat.last_name].filter(Boolean).join(' ');
+      const username = chat.username ? `@${chat.username}` : '';
+      const label = [name, username].filter(Boolean).join(' ').trim();
+      return label.length > 0 ? `${label} (ID: ${senderTelegramId})` : `ID: ${senderTelegramId}`;
+    }
+  } catch {
+    // Sender may have blocked the bot or be otherwise unreachable.
+  }
+  return `ID: ${senderTelegramId}`;
+}
+
+function wishCardText(employeeName: string, wish: BirthdayWish, sender: string): string {
   return t.admin.wishesMod.wishCard({
     fullName: escapeHtml(employeeName),
+    sender: escapeHtml(sender),
     statusLabel: wishStatusLabel(wish),
     publishedLabel: wish.isPublished
       ? t.admin.wishesMod.publishedYes
@@ -71,8 +93,9 @@ async function rerenderWishCard(ctx: BotContext, wishId: string): Promise<void> 
   }
   const employee = await employeeService.getById(wish.employeeId);
   const name = employee ? fullName(employee) : '';
+  const sender = await senderLabel(ctx.telegram, wish.senderTelegramId);
   await ctx
-    .editMessageText(wishCardText(name, wish), {
+    .editMessageText(wishCardText(name, wish, sender), {
       parse_mode: 'HTML',
       reply_markup: wishModerationKeyboard(wish.id).reply_markup,
     })
@@ -266,7 +289,8 @@ export function registerAdminActions(bot: Telegraf<BotContext>): void {
     }
     const name = fullName(employee);
     for (const wish of wishes) {
-      await ctx.reply(wishCardText(name, wish), {
+      const sender = await senderLabel(ctx.telegram, wish.senderTelegramId);
+      await ctx.reply(wishCardText(name, wish, sender), {
         parse_mode: 'HTML',
         reply_markup: wishModerationKeyboard(wish.id).reply_markup,
       });
@@ -291,10 +315,16 @@ export function registerAdminActions(bot: Telegraf<BotContext>): void {
       await ctx.answerCbQuery(t.common.error, { show_alert: true });
       return;
     }
-    const ok = await orchestrator.publishWishNow(ctx.match[1]);
-    await ctx.answerCbQuery(ok ? t.admin.wishesMod.published : t.admin.wishesMod.publishNoGroup, {
-      show_alert: !ok,
-    });
+    const result = await orchestrator.publishWishNow(ctx.match[1]);
+    const message =
+      result === 'ok'
+        ? t.admin.wishesMod.published
+        : result === 'no_group'
+          ? t.admin.wishesMod.publishNoGroup
+          : result === 'already_published'
+            ? t.admin.wishesMod.alreadyPublished
+            : t.common.unknownAction;
+    await ctx.answerCbQuery(message, { show_alert: result !== 'ok' });
     await rerenderWishCard(ctx, ctx.match[1]);
   });
 
@@ -314,7 +344,7 @@ function registerManualTriggers(bot: Telegraf<BotContext>): void {
   bot.action(cb.triggerReminder, async (ctx) => {
     const o = orchestrator();
     if (!o) return void ctx.answerCbQuery(t.common.error, { show_alert: true });
-    const n = await o.runReminders();
+    const n = await o.runReminders(true);
     await ctx.answerCbQuery(
       n > 0 ? t.admin.triggers.reminderDone(n) : t.admin.triggers.nothingDone,
       {
@@ -326,7 +356,7 @@ function registerManualTriggers(bot: Telegraf<BotContext>): void {
   bot.action(cb.triggerAnnouncement, async (ctx) => {
     const o = orchestrator();
     if (!o) return void ctx.answerCbQuery(t.common.error, { show_alert: true });
-    const n = await o.runMorningAnnouncements();
+    const n = await o.runMorningAnnouncements(true);
     await ctx.answerCbQuery(
       n > 0 ? t.admin.triggers.announcementDone(n) : t.admin.triggers.nothingDone,
       { show_alert: true },
@@ -336,7 +366,7 @@ function registerManualTriggers(bot: Telegraf<BotContext>): void {
   bot.action(cb.triggerPublish, async (ctx) => {
     const o = orchestrator();
     if (!o) return void ctx.answerCbQuery(t.common.error, { show_alert: true });
-    const n = await o.runWishPublishing();
+    const n = await o.runWishPublishing(true);
     await ctx.answerCbQuery(
       n > 0 ? t.admin.triggers.publishDone(n) : t.admin.triggers.nothingDone,
       {
@@ -348,7 +378,7 @@ function registerManualTriggers(bot: Telegraf<BotContext>): void {
   bot.action(cb.triggerEvening, async (ctx) => {
     const o = orchestrator();
     if (!o) return void ctx.answerCbQuery(t.common.error, { show_alert: true });
-    const n = await o.runEveningSummary();
+    const n = await o.runEveningSummary(true);
     await ctx.answerCbQuery(
       n > 0 ? t.admin.triggers.eveningDone(n) : t.admin.triggers.nothingDone,
       {

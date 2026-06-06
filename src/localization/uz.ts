@@ -84,19 +84,27 @@ export const uz = {
   },
 
   group: {
-    reminder: (fullNameHtml: string): string =>
-      `🎉 Ertaga jamoamiz a'zosi <b>${fullNameHtml}</b>ning tug'ilgan kuni!\n\n` +
-      'Keling, unga samimiy tabriklar yozamiz.\n\n' +
-      "Tabriklar anonim tarzda yig'iladi va ertaga guruhga e'lon qilinadi.",
+    reminder: (fullNameHtml: string, positionHtml?: string): string => {
+      const who = positionHtml ? `${positionHtml} ${fullNameHtml}` : fullNameHtml;
+      return (
+        `🎉 Ertaga jamoamiz a'zosi <b>${who}</b>ning tug'ilgan kuni!\n\n` +
+        'Keling, unga samimiy tabriklar yozamiz.\n\n' +
+        "Tabriklar anonim tarzda yig'iladi va ertaga guruhga e'lon qilinadi."
+      );
+    },
     reminderButton: '✍️ Tabrik yozish',
 
-    announcement: (fullNameHtml: string): string =>
-      `🎂 Bugun jamoamiz a'zosi <b>${fullNameHtml}</b>ning tug'ilgan kuni!\n\n` +
-      'Sizni chin qalbdan tabriklaymiz.\n\n' +
-      "Sog'liq, baxt, muvaffaqiyat va yangi yutuqlar tilaymiz. 🎈",
+    announcement: (fullNameHtml: string, positionHtml?: string): string => {
+      const who = positionHtml ? `${positionHtml} ${fullNameHtml}` : fullNameHtml;
+      return (
+        `🎂 Bugun jamoamiz a'zosi <b>${who}</b>ning tug'ilgan kuni!\n\n` +
+        'Sizni chin qalbdan tabriklaymiz.\n\n' +
+        "Sog'liq, baxt, muvaffaqiyat va yangi yutuqlar tilaymiz. 🎈"
+      );
+    },
 
     wishReveal: (seq: number, messageHtml: string): string =>
-      `💌 <b>Anonim tabrik #${seq}</b>\n\n${messageHtml}\n\n<i>Kim yozganini topa olasizmi?</i> 😉`,
+      `💌 <b>Anonim tabrik #${seq}</b>\n\n${messageHtml}`,
 
     pollQuestion: 'Qaysi anonim tabrik sizga eng samimiy tuyuldi?',
     pollOption: (seq: number): string => `Tabrik #${seq}`,
@@ -246,12 +254,14 @@ export const uz = {
         `${fullName} — ${total} ta (kutilmoqda: ${pending})`,
       wishCard: (data: {
         fullName: string;
+        sender: string;
         statusLabel: string;
         publishedLabel: string;
         message: string;
       }): string =>
-        `💌 <b>Anonim tabrik</b>\n` +
+        `💌 <b>Tabrik</b> <i>(faqat admin uchun)</i>\n` +
         `👤 Xodim: ${data.fullName}\n` +
+        `✍️ Yuborgan: ${data.sender}\n` +
         `📌 Holat: ${data.statusLabel}\n` +
         `📢 E'lon: ${data.publishedLabel}\n\n` +
         `${data.message}`,
@@ -269,6 +279,7 @@ export const uz = {
       rejected: '❌ Tabrik rad etildi.',
       deleted: "🗑 Tabrik o'chirildi.",
       published: "📢 Tabrik guruhga e'lon qilindi.",
+      alreadyPublished: "Bu tabrik allaqachon e'lon qilingan.",
       publishNoGroup: '❗️ Avval guruh ID sozlamalardan belgilanishi kerak.',
     },
 

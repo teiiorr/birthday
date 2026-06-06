@@ -26,6 +26,8 @@ import { reminderKeyboard } from '../bot/keyboards/wish.keyboard';
 
 const log = createLogger('orchestrator');
 
+export type PublishResult = 'ok' | 'no_group' | 'not_found' | 'already_published';
+
 export class BirthdayOrchestrator {
   constructor(private readonly telegram: Telegram) {}
 
@@ -33,8 +35,11 @@ export class BirthdayOrchestrator {
     return settingsService.getEffectiveGroupChatId();
   }
 
-  /** One-day-before reminders for everyone with a birthday tomorrow. */
-  async runReminders(): Promise<number> {
+  /**
+   * One-day-before reminders for everyone with a birthday tomorrow.
+   * @param force when true (manual admin trigger) re-send even if already sent.
+   */
+  async runReminders(force = false): Promise<number> {
     const groupId = await this.groupChatId();
     if (!groupId) {
       log.warn('Reminder skipped — no group chat id configured');
@@ -49,7 +54,7 @@ export class BirthdayOrchestrator {
     for (const employee of employees) {
       try {
         const event = await birthdayService.ensureEventForDate(employee.id, eventDate);
-        if (event.reminderSentAt) continue;
+        if (!force && event.reminderSentAt) continue;
 
         await this.telegram.sendMessage(groupId, reminderMessage(employee), {
           parse_mode: 'HTML',
@@ -66,8 +71,11 @@ export class BirthdayOrchestrator {
     return sent;
   }
 
-  /** Morning announcements for everyone with a birthday today. */
-  async runMorningAnnouncements(): Promise<number> {
+  /**
+   * Morning announcements for everyone with a birthday today.
+   * @param force when true (manual admin trigger) re-send even if already sent.
+   */
+  async runMorningAnnouncements(force = false): Promise<number> {
     const groupId = await this.groupChatId();
     if (!groupId) {
       log.warn('Announcement skipped — no group chat id configured');
@@ -81,7 +89,7 @@ export class BirthdayOrchestrator {
     for (const employee of employees) {
       try {
         const event = await birthdayService.ensureTodayEvent(employee.id, timezone);
-        if (event.announcementSentAt) continue;
+        if (!force && event.announcementSentAt) continue;
 
         await this.sendAnnouncement(groupId, employee);
         await birthdayService.markAnnouncementSent(event.id);
@@ -99,8 +107,9 @@ export class BirthdayOrchestrator {
    * Gradual reveal: publishes the next single unpublished wish for each of
    * today's birthdays. Runs on the publish interval, so wishes trickle out over
    * the day rather than all at once.
+   * @param force when true (manual admin trigger) re-reveal ALL wishes again.
    */
-  async runWishPublishing(): Promise<number> {
+  async runWishPublishing(force = false): Promise<number> {
     const groupId = await this.groupChatId();
     if (!groupId) return 0;
 
@@ -116,6 +125,11 @@ export class BirthdayOrchestrator {
         const event = await birthdayService.ensureTodayEvent(employee.id, timezone);
         // Never reveal wishes before the birthday announcement itself.
         if (!event.announcementSentAt) continue;
+
+        if (force) {
+          published += await this.revealAllWishes(groupId, employee.id);
+          continue;
+        }
 
         const next = await wishService.findNextUnpublished(employee.id);
         if (!next) continue;
@@ -134,11 +148,31 @@ export class BirthdayOrchestrator {
     return published;
   }
 
+  /** Publish any unpublished wishes, then re-send the reveals for ALL of them. */
+  private async revealAllWishes(groupId: string, employeeId: string): Promise<number> {
+    for (;;) {
+      const next = await wishService.findNextUnpublished(employeeId);
+      if (!next) break;
+      await wishService.markPublished(next);
+    }
+    const wishes = await wishService.listPublished(employeeId);
+    let count = 0;
+    for (const wish of wishes) {
+      const seq = wish.publishedSeq ?? count + 1;
+      await this.telegram.sendMessage(groupId, wishRevealMessage(seq, wish.message), {
+        parse_mode: 'HTML',
+      });
+      count += 1;
+      await sleep(GROUP_SEND_THROTTLE_MS);
+    }
+    return count;
+  }
+
   /**
    * Evening wrap-up: flush any remaining wishes, create the community poll, and
    * post the summary. Works even when nobody wrote a wish (warm message).
    */
-  async runEveningSummary(): Promise<number> {
+  async runEveningSummary(force = false): Promise<number> {
     const groupId = await this.groupChatId();
     if (!groupId) {
       log.warn('Evening summary skipped — no group chat id configured');
@@ -152,7 +186,7 @@ export class BirthdayOrchestrator {
     for (const employee of employees) {
       try {
         const event = await birthdayService.ensureTodayEvent(employee.id, timezone);
-        if (event.summarySentAt) continue;
+        if (!force && event.summarySentAt) continue;
         if (!event.announcementSentAt) {
           // Edge case: announcement never ran today — send it first.
           await this.sendAnnouncement(groupId, employee);
@@ -178,34 +212,45 @@ export class BirthdayOrchestrator {
   }
 
   /** Manually publish one specific wish to the group (admin moderation). */
-  async publishWishNow(wishId: string): Promise<boolean> {
+  async publishWishNow(wishId: string): Promise<PublishResult> {
     const groupId = await this.groupChatId();
-    if (!groupId) return false;
+    if (!groupId) return 'no_group';
+
+    const wish = await wishService.getById(wishId);
+    if (!wish) return 'not_found';
+    if (wish.isPublished) return 'already_published';
 
     const result = await wishService.publishManually(wishId);
-    if (!result) return false;
+    if (!result) return 'not_found';
 
     const employee = await employeeService.getById(result.wish.employeeId);
-    if (!employee) return false;
+    if (!employee) return 'not_found';
 
     await this.telegram.sendMessage(groupId, wishRevealMessage(result.seq, result.wish.message), {
       parse_mode: 'HTML',
     });
     log.info({ wishId, seq: result.seq }, 'Anonymous wish published (manual)');
-    return true;
+    return 'ok';
   }
 
   // ── internals ──────────────────────────────────────────────────────────────
 
   private async sendAnnouncement(groupId: string, employee: Employee): Promise<void> {
     const text = announcementMessage(employee);
+    // Keep the "write a wish" button on the announcement so colleagues can still
+    // send wishes on the birthday itself.
+    const replyMarkup = reminderKeyboard(employee.id).reply_markup;
     if (employee.photoFileId) {
       await this.telegram.sendPhoto(groupId, employee.photoFileId, {
         caption: text,
         parse_mode: 'HTML',
+        reply_markup: replyMarkup,
       });
     } else {
-      await this.telegram.sendMessage(groupId, text, { parse_mode: 'HTML' });
+      await this.telegram.sendMessage(groupId, text, {
+        parse_mode: 'HTML',
+        reply_markup: replyMarkup,
+      });
     }
   }
 

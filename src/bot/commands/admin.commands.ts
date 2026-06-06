@@ -23,6 +23,7 @@ const SAMPLE_EMPLOYEE = {
   lastName: 'Valiyev',
   birthMonth: 6,
   birthDay: 12,
+  position: 'Bosh mutaxassis',
 };
 
 function buildPreview(): string {

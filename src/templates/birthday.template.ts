@@ -12,16 +12,21 @@ export interface EmployeeLike {
   birthMonth: number;
   birthDay: number;
   photoFileId?: string | null;
+  position?: string | null;
+}
+
+function positionHtml(employee: EmployeeLike): string | undefined {
+  return employee.position ? escapeHtml(employee.position) : undefined;
 }
 
 /** One-day-before reminder with the "write a wish" call to action. */
 export function reminderMessage(employee: EmployeeLike): string {
-  return t.group.reminder(escapeHtml(fullName(employee)));
+  return t.group.reminder(escapeHtml(fullName(employee)), positionHtml(employee));
 }
 
 /** Morning birthday announcement. */
 export function announcementMessage(employee: EmployeeLike): string {
-  return t.group.announcement(escapeHtml(fullName(employee)));
+  return t.group.announcement(escapeHtml(fullName(employee)), positionHtml(employee));
 }
 
 /** A single gradual anonymous wish reveal (#seq). */
