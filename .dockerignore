@@ -1,0 +1,36 @@
+# Dependencies (re-installed inside the image)
+node_modules
+npm-debug.log
+
+# Build output (re-built inside the image)
+dist
+*.tsbuildinfo
+
+# Secrets & local env — must never enter the image
+.env
+.env.local
+.env.*.local
+
+# Git & CI
+.git
+.gitignore
+.github
+
+# Editor / OS
+.idea
+.vscode
+.DS_Store
+
+# Docs & misc that are not needed at runtime
+README.md
+docs
+*.md
+!prisma/**
+
+# Logs, backups, coverage
+logs
+*.log
+*.sql
+*.dump
+backup*.sql
+coverage

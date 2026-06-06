@@ -1,0 +1,63 @@
+# Birthday Team Bot — full stack (bot + PostgreSQL)
+#
+# Usage:
+#   cp .env.example .env   # then fill in the values
+#   docker compose up -d --build
+#
+# Variable substitution below is read from the project-root .env automatically.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: birthday_postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-birthday_bot}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-birthday_bot}']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    # Expose the DB to the host only if you need direct access for debugging:
+    # ports:
+    #   - '5432:5432'
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: birthday_bot
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: ${NODE_ENV:-production}
+      PORT: ${PORT:-3000}
+    ports:
+      # Health-check endpoint. Long polling needs no inbound port; remove this
+      # mapping if you do not want to expose /health to the host.
+      - '${PORT:-3000}:${PORT:-3000}'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:'+(process.env.PORT||3000)+'/health').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 25s
+
+volumes:
+  postgres_data:

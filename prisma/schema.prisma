@@ -1,0 +1,122 @@
+// Birthday Team Bot — Prisma schema
+// Database: PostgreSQL
+//
+// Naming convention: camelCase in code, snake_case in the database (via @map).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// Moderation lifecycle of an anonymous birthday wish.
+enum WishStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+/// An employee whose birthday the bot celebrates.
+model Employee {
+  id               String  @id @default(uuid())
+  firstName        String  @map("first_name")
+  lastName         String  @map("last_name")
+  telegramUsername String? @map("telegram_username")
+  telegramUserId   BigInt? @unique @map("telegram_user_id")
+
+  /// Full birth date (the year may be historical and is only used for records).
+  birthDate DateTime @map("birth_date") @db.Date
+  /// Denormalised month (1-12) and day (1-31) for efficient year-agnostic
+  /// birthday lookups. Kept in sync with `birthDate` by the service layer.
+  birthMonth Int @map("birth_month")
+  birthDay   Int @map("birth_day")
+
+  department  String?
+  position    String?
+  photoFileId String? @map("photo_file_id")
+
+  isActive   Boolean @default(true) @map("is_active")
+  isArchived Boolean @default(false) @map("is_archived")
+
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  wishes BirthdayWish[]
+  events BirthdayEvent[]
+
+  @@index([birthMonth, birthDay])
+  @@index([isActive, isArchived])
+  @@map("employees")
+}
+
+/// An anonymous birthday wish submitted privately by a group member.
+model BirthdayWish {
+  id               String     @id @default(uuid())
+  employeeId       String     @map("employee_id")
+  senderTelegramId BigInt     @map("sender_telegram_id")
+  message          String     @db.Text
+  status           WishStatus @default(APPROVED)
+  isPublished      Boolean    @default(false) @map("is_published")
+  /// Sequence number assigned when the wish is revealed in the group (#1, #2…).
+  publishedSeq Int?      @map("published_seq")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  publishedAt  DateTime? @map("published_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@index([employeeId, status, isPublished])
+  @@index([employeeId, senderTelegramId])
+  @@map("birthday_wishes")
+}
+
+/// A user authorised to administer the bot (in addition to env-configured IDs).
+model Admin {
+  id             String   @id @default(uuid())
+  telegramUserId BigInt   @unique @map("telegram_user_id")
+  fullName       String   @map("full_name")
+  createdAt      DateTime @default(now()) @map("created_at")
+
+  @@map("admins")
+}
+
+/// Singleton row (id = 1) holding all configurable bot settings.
+model Settings {
+  id                     Int      @id @default(1)
+  groupChatId            BigInt?  @map("group_chat_id")
+  reminderTime           String   @default("10:00") @map("reminder_time")
+  morningBirthdayTime    String   @default("09:00") @map("morning_birthday_time")
+  publishIntervalMinutes Int      @default(90) @map("publish_interval_minutes")
+  eveningSummaryTime     String   @default("20:00") @map("evening_summary_time")
+  timezone               String   @default("Asia/Tashkent")
+  anonymousWishesEnabled Boolean  @default(true) @map("anonymous_wishes_enabled")
+  requireWishApproval    Boolean  @default(false) @map("require_wish_approval")
+  createdAt              DateTime @default(now()) @map("created_at")
+  updatedAt              DateTime @updatedAt @map("updated_at")
+
+  @@map("settings")
+}
+
+/// Per-employee, per-year orchestration record. Makes every scheduled step
+/// idempotent so a restart never double-posts a reminder, announcement,
+/// poll or summary.
+model BirthdayEvent {
+  id                 String    @id @default(uuid())
+  employeeId         String    @map("employee_id")
+  /// The birthday date for this celebration (normalised to the current year).
+  eventDate          DateTime  @map("event_date") @db.Date
+  reminderSentAt     DateTime? @map("reminder_sent_at")
+  announcementSentAt DateTime? @map("announcement_sent_at")
+  pollMessageId      Int?      @map("poll_message_id")
+  pollSentAt         DateTime? @map("poll_sent_at")
+  summarySentAt      DateTime? @map("summary_sent_at")
+  createdAt          DateTime  @default(now()) @map("created_at")
+  updatedAt          DateTime  @updatedAt @map("updated_at")
+
+  employee Employee @relation(fields: [employeeId], references: [id], onDelete: Cascade)
+
+  @@unique([employeeId, eventDate])
+  @@map("birthday_events")
+}

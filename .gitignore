@@ -1,0 +1,45 @@
+# Dependencies
+node_modules/
+.pnp/
+.pnp.js
+
+# Build output
+dist/
+build/
+*.tsbuildinfo
+
+# Environment & secrets — NEVER commit real secrets
+.env
+.env.local
+.env.*.local
+*.pem
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Database dumps / backups
+*.sql
+*.dump
+backup*.sql
+
+# Employee data files (PII) — keep real rosters out of version control
+*.csv
+
+# Prisma local artifacts
+prisma/*.db
+prisma/*.db-journal
+
+# Editor / OS
+.DS_Store
+.idea/
+.vscode/
+*.swp
+Thumbs.db
+
+# Coverage
+coverage/
+.nyc_output/
