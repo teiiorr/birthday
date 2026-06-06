@@ -34,3 +34,7 @@ logs
 *.dump
 backup*.sql
 coverage
+
+# Exception: Prisma migrations (incl. migration.sql) MUST enter the image
+!prisma/migrations
+!prisma/migrations/**

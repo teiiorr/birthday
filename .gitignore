@@ -26,6 +26,10 @@ yarn-error.log*
 *.dump
 backup*.sql
 
+# Exception: Prisma migration SQL MUST be committed (needed by migrate deploy)
+!prisma/migrations/
+!prisma/migrations/**
+
 # Employee data files (PII) — keep real rosters out of version control
 *.csv
 
